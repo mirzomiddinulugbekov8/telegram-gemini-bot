@@ -38,9 +38,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
     
     try:
-        # Barqaror ishlaydigan gemini-1.5-flash modeli
+        # Eng yangi va barqaror gemini-2.0-flash modeli
         response = ai_client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.0-flash',
             contents=user_text,
         )
         reply_text = response.text
