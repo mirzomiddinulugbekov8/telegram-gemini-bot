@@ -20,7 +20,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render / Web-service uxlashining oldini olish uchun Flask server
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -43,17 +42,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for attempt in range(max_retries):
         try:
-            # To'g'ri model nomi ishlatilmoqda
-            response = ai_client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=user_text,
+            # Sinxron SDK chaqiruvini async threadpool'da ishga tushirish (bot muzlab qolmasligi uchun)
+            loop = asyncio.get_running_loop()
+            
+            # API xabarida tavsiya etilganidek gemini-3.8-flash modelidan foydalanamiz
+            response = await loop.run_in_executor(
+                None,
+                lambda: ai_client.models.generate_content(
+                    model='gemini-3.8-flash',
+                    contents=user_text,
+                )
             )
             reply_text = response.text
             break  # Muvaffaqiyatli javob olindi
+            
         except Exception as e:
             err_msg = str(e)
-            if "503" in err_msg and attempt < max_retries - 1:
-                # time.sleep o'rniga asyncio.sleep ishlatamiz
+            if ("503" in err_msg or "429" in err_msg) and attempt < max_retries - 1:
+                # time.sleep o'rniga asinxron kutish
                 await asyncio.sleep(2)
                 continue
             else:
@@ -61,7 +67,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"ANIQ XATOLIK: {e}")
                 break
 
-    # Telegram xabar uzunligi chegarasi (4096 belgi)
+    # Telegram xabarining maksimal uzunligi (4096 belgi) bo'yicha bo'lib yuborish
     if len(reply_text) > 4000:
         for i in range(0, len(reply_text), 4000):
             await update.message.reply_text(reply_text[i:i+4000])
@@ -74,7 +80,7 @@ def main():
     t.daemon = True
     t.start()
 
-    # Telegram botni ishga tushirish
+    # Telegram botni sozlash
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
