@@ -1,22 +1,26 @@
 import os
-import time
+import asyncio
 import logging
+import threading
+from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from google import genai
-from flask import Flask
-import threading
 
+# Atrof-muhit o'zgaruvchilarini olish
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
+# Gemini mijozini yaratish
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
+# Log sozlamalari
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
+# Render / Web-service uxlashining oldini olish uchun Flask server
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -39,29 +43,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for attempt in range(max_retries):
         try:
+            # To'g'ri model nomi ishlatilmoqda
             response = ai_client.models.generate_content(
-                model='gemini-3.8-flash',
+                model='gemini-2.5-flash',
                 contents=user_text,
             )
             reply_text = response.text
-            break  # Успешно получили ответ — выходим из цикла
+            break  # Muvaffaqiyatli javob olindi
         except Exception as e:
             err_msg = str(e)
             if "503" in err_msg and attempt < max_retries - 1:
-                time.sleep(2)  # Пауза 2 секунды перед повторной попыткой
+                # time.sleep o'rniga asyncio.sleep ishlatamiz
+                await asyncio.sleep(2)
                 continue
             else:
                 reply_text = f"Xatolik yuz berdi: {err_msg}"
-                print(f"ANIQ XATOLIK: {e}")
+                logging.error(f"ANIQ XATOLIK: {e}")
                 break
 
-    await update.message.reply_text(reply_text)
+    # Telegram xabar uzunligi chegarasi (4096 belgi)
+    if len(reply_text) > 4000:
+        for i in range(0, len(reply_text), 4000):
+            await update.message.reply_text(reply_text[i:i+4000])
+    else:
+        await update.message.reply_text(reply_text)
 
 def main():
+    # Flask serverni alohida oqimda ishga tushirish
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
 
+    # Telegram botni ishga tushirish
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
