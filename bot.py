@@ -14,7 +14,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 # Gemini mijozini yaratish
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Log sozlamalari
+# Log sozlamalarini to'g'irlash
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -35,17 +35,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    await update.message.chat.send_action("typing")
+    
+    # Typing effektini yuborish
+    try:
+        await update.message.chat.send_action("typing")
+    except Exception as err:
+        logging.warning(f"Typing yuborishda xatolik: {err}")
     
     reply_text = ""
     max_retries = 3
     
     for attempt in range(max_retries):
         try:
-            # Sinxron SDK chaqiruvini async threadpool'da ishga tushirish (bot muzlab qolmasligi uchun)
+            # Synch SDK chaqiruvini asinxron oqimga o'tkazamiz (bot muzlab qolmasligi uchun)
             loop = asyncio.get_running_loop()
-            
-            # API xabarida tavsiya etilganidek gemini-3.8-flash modelidan foydalanamiz
             response = await loop.run_in_executor(
                 None,
                 lambda: ai_client.models.generate_content(
@@ -54,28 +57,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
             reply_text = response.text
-            break  # Muvaffaqiyatli javob olindi
+            break  # Javob muvaffaqiyatli olindi
             
         except Exception as e:
             err_msg = str(e)
+            logging.error(f"Urashish {attempt + 1} xatosi: {err_msg}")
+            
             if ("503" in err_msg or "429" in err_msg) and attempt < max_retries - 1:
-                # time.sleep o'rniga asinxron kutish
+                # time.sleep o'rniga asinxron kutish (bot boshqa foydalanuvchilarni ham to'xtatib qo'ymaydi)
                 await asyncio.sleep(2)
                 continue
             else:
                 reply_text = f"Xatolik yuz berdi: {err_msg}"
-                logging.error(f"ANIQ XATOLIK: {e}")
                 break
 
-    # Telegram xabarining maksimal uzunligi (4096 belgi) bo'yicha bo'lib yuborish
-    if len(reply_text) > 4000:
-        for i in range(0, len(reply_text), 4000):
-            await update.message.reply_text(reply_text[i:i+4000])
-    else:
-        await update.message.reply_text(reply_text)
+    # Agar javob bo'sh kelib qolsa
+    if not reply_text:
+        reply_text = "Kechirasiz, javob olishda noma'lum xatolik yuz berdi."
+
+    # Telegram xabarining maksimum uzunligi (4096 belgi) bo'yicha bo'lib yuborish
+    try:
+        if len(reply_text) > 4000:
+            for i in range(0, len(reply_text), 4000):
+                await update.message.reply_text(reply_text[i:i+4000])
+        else:
+            await update.message.reply_text(reply_text)
+    except Exception as e:
+        logging.error(f"Xabarni yuborishda Telegram xatosi: {e}")
 
 def main():
-    # Flask serverni alohida oqimda ishga tushirish
+    # Flask serverni alohida thread'da yuritish
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
