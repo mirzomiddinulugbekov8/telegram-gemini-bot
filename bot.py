@@ -39,12 +39,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.warning(f"Typing xatosi: {e}")
 
-    # Bandlik yuz berganda almashtiriladigan modellar ro'yxati (eng yaxshisidan boshlab)
+    # Server band bo'lsa navbat bilan sinab ko'riladigan modellar
     models_to_try = [
-        'gemini-3.8-flash',
         'gemini-2.5-flash',
         'gemini-2.0-flash',
-        'gemini-1.5-flash'
+        'gemini-1.5-flash',
+        'gemini-3.8-flash'
     ]
     
     reply_text = ""
@@ -58,36 +58,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     loop = asyncio.get_running_loop()
 
-    # Bir nechta modellarni va qayta urinishlarni sinab ko'rish
+    # Sinov zanjiri
     for model_name in models_to_try:
-        success = False
-        for attempt in range(2):  # Har bir model uchun 2 marta urinish
-            try:
-                response = await loop.run_in_executor(
-                    None, 
-                    generate_content_sync, 
-                    model_name, 
-                    user_text
-                )
-                if response and response.text:
-                    reply_text = response.text
-                    success = True
-                    break
-            except Exception as e:
-                last_error = str(e)
-                logging.warning(f"Model '{model_name}' urinish {attempt+1} xatosi: {e}")
-                if "503" in last_error or "429" in last_error:
-                    await asyncio.sleep(2 * (attempt + 1))  # Pauza qilib qayta urinish
-                else:
-                    break  # Agar 503 bo'lmasa, keyingi modelga o'tish
-        
-        if success:
-            break
+        try:
+            response = await loop.run_in_executor(
+                None, 
+                generate_content_sync, 
+                model_name, 
+                user_text
+            )
+            if response and response.text:
+                reply_text = response.text
+                break
+        except Exception as e:
+            last_error = str(e)
+            logging.warning(f"Model '{model_name}' ishlamadi: {e}")
+            await asyncio.sleep(1)
+            continue
 
     if not reply_text:
-        reply_text = f"Kechirasiz, serverlar bandligi sababli javob ololmadim. Oxirgi xatolik: {last_error}"
+        reply_text = f"Xatolik yuz berdi. Serverlar band bo'lishi mumkin. Oxirgi xatolik: {last_error}"
 
-    # Telegram xabar chegarasiga ko'ra bo'lib yuborish
+    # Telegram xabar uzunligi bo'yicha bo'lish (4000 belgi)
     try:
         if len(reply_text) > 4000:
             for i in range(0, len(reply_text), 4000):
@@ -107,6 +99,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("Bot va Veb-server ishga tushdi...")
+    # drop_pending_updates=True eski vaqtinchalik xatoliklarni tozalaydi
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
